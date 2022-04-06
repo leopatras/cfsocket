@@ -7,21 +7,18 @@
 @interface MyConnection: NSObject<NSStreamDelegate>
 {
   //write relate members
-  bool _outReady;
   NSOutputStream* _oStream;
   bool _hasSpaceAvail;
   //read related members
   NSInputStream* _iStream;
-  bool _inReady;
 }
 @property(readonly) NSInputStream* iStream;
+@property(readonly) bool hasSpaceAvail;
 @end
 @interface MyTCPServer: NSObject
 {
   CFSocketRef _socket;
 }
-@property(readonly) int port;
-- (MyConnection*)allocConnection;
 @end
 
 @implementation MyConnection
@@ -57,7 +54,7 @@ static void streamClose(NSStream* stream)
 }
 @end
 
-static void createClientConnectionInt(CFSocketNativeHandle sock,MyConnection* conn) {
+static bool createClientConnectionInt(CFSocketNativeHandle sock,MyConnection* conn) {
   int flag = 1;
   setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,(char *)&flag, sizeof(int));
   CFReadStreamRef readStream = NULL;
@@ -69,10 +66,12 @@ static void createClientConnectionInt(CFSocketNativeHandle sock,MyConnection* co
     CFWriteStreamSetProperty( writeStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue );
     conn=[conn initWithIn:(__bridge NSInputStream *)(readStream)
                    andOut:(__bridge NSOutputStream*)writeStream];
+    return true;
   } else {
     NSLog(@"Stream error");
     //destroy native socket
     close( sock );
+    return false;
   }
 }
 
@@ -95,19 +94,14 @@ static void AcceptCallBack(CFSocketRef accsock, CFSocketCallBackType type, CFDat
     if (s_con_arr==nil) {
       s_con_arr=[NSMutableArray array];
     }
-    MyConnection* conn=[srv allocConnection];
-    [s_con_arr addObject:conn];
-    createClientConnectionInt(sock,conn);
+    MyConnection* conn=[MyConnection alloc];
+    if (createClientConnectionInt(sock,conn)) {
+      [s_con_arr addObject:conn];
+    }
   }
 }
 
 @implementation MyTCPServer
-- (id)init
-{
-  self = [super init];
-  return self;
-}
-
 - (void)stop
 {
   if( _socket ) {
@@ -120,11 +114,6 @@ static void AcceptCallBack(CFSocketRef accsock, CFSocketCallBackType type, CFDat
 - (void)dealloc
 {
   [self stop];
-}
-
-- (MyConnection*)allocConnection
-{
-  return [MyConnection alloc];
 }
 
 - (bool)start
@@ -150,12 +139,6 @@ static void AcceptCallBack(CFSocketRef accsock, CFSocketCallBackType type, CFDat
       [self stop];
       return false;
   }
-    /*
-    else {
-      NSData *addr = (__bridge NSData *)(CFSocketCopyAddress(_socket));
-      memcpy(&saddr, [addr bytes], [addr length]);
-      int actualport=ntohs(saddr.sin_port);
-    }*/
   //set up the run loop source for the socket
   CFRunLoopRef cfrl = CFRunLoopGetCurrent();
   CFRunLoopSourceRef rlsource = CFSocketCreateRunLoopSource( kCFAllocatorDefault, _socket, 0 );
@@ -180,10 +163,11 @@ static void AcceptCallBack(CFSocketRef accsock, CFSocketCallBackType type, CFDat
   switch( eventCode )
   {
     case NSStreamEventOpenCompleted: {
+      NSLog(@"NSStreamEventOpenCompleted");
       if( stream == _iStream ) {
-        _inReady = true;
+        NSLog(@"_iStream ready");
       } else if (stream == _oStream) {
-        _outReady = true;
+        NSLog(@"_oStream ready");
       }
       break;
     }
@@ -243,11 +227,11 @@ static void checkTcpServer()
   _win=[[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
   _win.backgroundColor=UIColor.whiteColor;
   UIViewController* c=[[UIViewController alloc] init];
+  c.title=@"Title";
   UINavigationController* nav=[[UINavigationController alloc] initWithRootViewController:c];
-  c.navigationItem.title=@"A title";
   NSMutableArray* arr=[NSMutableArray array];
   for(int i=0;i<4;i++) {
-    NSString* s=[NSString stringWithFormat:@"Command%d",i];
+    NSString* s=[NSString stringWithFormat:@"C%d",i];
     UIBarButtonItem* b=[[UIBarButtonItem alloc] initWithTitle:s style:UIBarButtonItemStylePlain target:self action:@selector(itemSelected:)];
     [arr insertObject:b atIndex:0];
   }
